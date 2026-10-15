@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Keep the Claude web app's dock icon from going blank on Linux.
+#
+# Chromium (especially the snap) writes the web app's launcher with an Icon=
+# path inside a version folder, e.g. ~/snap/chromium/3549/..., which the next
+# update deletes, leaving a blank dock icon. This script finds the Claude
+# web-app launcher(s), keeps a rounded copy of the app's own icon somewhere
+# stable, and points Icon= at it. Safe to run any time; it only edits a
+# launcher whose Icon= line is wrong.
+set -u
+
+APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+ICON_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/icons"
+APP_NAME="${CLAUDE_APP_NAME:-Claude}"
+
+# Where Chromium-family browsers keep installed web-app icons.
+icon_source() {
+  local id=$1 base
+  for base in "$HOME/snap/chromium/common/chromium" "$HOME/.config/chromium" \
+              "$HOME/.config/google-chrome" "$HOME/.config/google-chrome-beta" \
+              "$HOME/.config/microsoft-edge" "$HOME/.config/BraveSoftware/Brave-Browser"; do
+    for p in "$base"/*/"Web Applications/Manifest Resources/$id/Icons"/{512,256,192,128}.png; do
+      [[ -f $p ]] && { echo "$p"; return; }
+    done
+  done
+}
+
+make_icon() {  # src dst: rounded corners to match GNOME dock icons; square if PIL is missing
+  python3 - "$1" "$2" <<'PY' 2>/dev/null || install -m 644 "$1" "$2"
+import sys
+from PIL import Image, ImageDraw
+im = Image.open(sys.argv[1]).convert("RGBA"); n = im.size[0]; k = 4
+m = Image.new("L", (n*k, n*k), 0)
+ImageDraw.Draw(m).rounded_rectangle((0, 0, n*k-1, n*k-1), radius=int(n*k*0.225), fill=255)
+im.putalpha(m.resize((n, n), Image.LANCZOS))
+c = Image.new("RGBA", (n, n), (0, 0, 0, 0)); i = im.resize((int(n*0.9),)*2, Image.LANCZOS)
+c.alpha_composite(i, ((n - i.size[0])//2,)*2); c.save(sys.argv[2])
+PY
+}
+
+shopt -s nullglob
+for desktop in "$APPS"/chrome-*.desktop "$APPS"/chromium-*.desktop "$APPS"/msedge-*.desktop "$APPS"/brave-*.desktop; do
+  grep -qxF "Name=$APP_NAME" "$desktop" || continue
+  id=$(sed -n 's/.*--app-id=\([a-p]\{32\}\).*/\1/p' "$desktop" | head -1)
+  [[ -n $id ]] || continue
+
+  icon="$ICON_DIR/claude-app-$id.png"
+  if [[ ! -s $icon ]]; then
+    src=$(icon_source "$id")
+    [[ -n $src ]] || { echo "no icon found for $id; leaving $desktop alone" >&2; continue; }
+    mkdir -p "$ICON_DIR"
+    make_icon "$src" "$icon"
+  fi
+
+  if ! grep -qxF "Icon=$icon" "$desktop"; then
+    sed -i "s|^Icon=.*|Icon=$icon|" "$desktop"
+    echo "restored icon in $(basename "$desktop")"
+  fi
+done

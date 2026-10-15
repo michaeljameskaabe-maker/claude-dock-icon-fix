@@ -1,0 +1,6 @@
+[Unit]
+Description=Restore the Claude web app dock icon
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/fix-claude-dock-icon

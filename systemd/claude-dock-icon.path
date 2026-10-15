@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch web-app launchers so the Claude dock icon can be restored after browser rewrites
+
+[Path]
+# Watching the folder (not one file) also covers a reinstall that changes the app ID.
+PathChanged=%h/.local/share/applications
+Unit=claude-dock-icon.service
+
+[Install]
+WantedBy=default.target
